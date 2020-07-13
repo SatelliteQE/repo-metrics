@@ -1,0 +1,11 @@
+
+# Ignore dynaconf secret files
+.secrets.*
+
+.eggs
+.idea
+.vscode
+.qe-pr-metrics
+qe_pr_metrics.egg-info/
+
+settings.yaml

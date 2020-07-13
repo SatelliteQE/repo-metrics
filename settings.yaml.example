@@ -1,0 +1,3 @@
+gh_repo: SatelliteQE/Robottelo
+gh_token: <GH token with read>
+metrics_output_file_prefix: "gh-pr-metrics"
