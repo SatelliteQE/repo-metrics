@@ -1,3 +1,11 @@
 gh_repo: SatelliteQE/Robottelo
 gh_token: <GH token with read>
-metrics_output_file_prefix: "gh-pr-metrics"
+gh_org: SatelliteQE
+metrics_output_file_prefix: "gathered-metrics"
+
+# teams in the organization that include reviewers
+# these keys are the 'slug' for the team, which you see in the address bar
+# Example: https://github.com/orgs/SatelliteQE/teams/tier-1-reviewers
+reviewer_teams:
+  - tier-1-reviewers
+  - tier-2-reviewers

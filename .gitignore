@@ -9,3 +9,5 @@
 qe_pr_metrics.egg-info/
 
 settings.yaml
+
+*.json
