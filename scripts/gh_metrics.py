@@ -8,7 +8,7 @@ from tabulate import tabulate
 
 from config import settings
 from utils import file_io
-from utils import github_client
+from utils import metrics_calculators
 
 
 # keys that will be read from settings files (dynaconf parsing) for command input defaults
@@ -38,26 +38,34 @@ org_name_option = click.option(
 )
 repo_name_option = click.option(
     "--repo-name",
-    default=settings.get(SETTINGS_REPO, "SatelliteQE/robottelo"),
-    help="The repository owner and name path, like SatelliteQE/robottelo",
+    default=settings.get(SETTINGS_REPO, "robottelo"),
+    help="The repository name, like robottelo",
+)
+pr_count_option = click.option(
+    "--pr-count",
+    default=50,
+    help="Number of PRs to include in metrics counts, will start from most recently created",
 )
 
 
 @gather.command(
     "time_to_review", help="Gather PR metrics for a GH repo (SatelliteQE/robottelo)"
 )
+@org_name_option
 @repo_name_option
 @output_prefix_option
-def time_to_review(repo_name, metrics, file_output_prefix):
-    gathered_metrics = github_client.time_to_review(repo_name=repo_name)
+@pr_count_option
+def time_to_review(repo_name, org_name, file_output_prefix, pr_count):
+    gathered_metrics = metrics_calculators.time_to_review(
+        organization=org_name, repo_name=repo_name, pr_count=pr_count
+    )
 
     click.echo("Gathered metrics for time to review", color="cyan")
     click.echo("-----------------------------------", color="cyan")
     click.echo(
         tabulate(
-            gathered_metrics.values(),
-            showindex=gathered_metrics.keys(),
-            headers="keys",
+            gathered_metrics,
+            headers=["PR", "Hours to first review", "Author", "Review Author"],
             tablefmt="github",
             floatfmt=".2f",
         )
@@ -81,7 +89,7 @@ def reviewer_actions(org_name, file_output_prefix):
     team_slugs = settings.get(
         "reviewers_teams", ["tier-1-reviewers", "tier-2-reviewers"]
     )
-    reviewer_metrics = github_client.reviewer_actions(org_name, team_slugs)
+    reviewer_metrics = metrics_calculators.reviewer_actions(org_name, team_slugs)
 
     # TODO: header per team slugs, read from reviewer_metrics dict
     click.echo("Gathered metrics for reviewer actions [TIER 1]", color="cyan")

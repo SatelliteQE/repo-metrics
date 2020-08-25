@@ -1,5 +1,6 @@
 from attrdict import AttrDict
 
+from .GQL_Queries.github_wrappers import RepoWrapper
 from config import settings
 
 
@@ -28,30 +29,28 @@ class PullRequestMetrics(AttrDict):
     pass
 
 
-def time_to_review(repo_name):
+def time_to_review(organization, repo_name, pr_count):
     """Iterate over the PRs in the repo and calculate times to the first comment
 
     Calculates the time delta per-PR from creation to comment, and from 'review' label to comment
 
     Args:
-        repo_name: string repository name, including the owner/org (example: SatelliteQE/robottelo)
+        organization: string organization or repository owner  (ex. SatelliteQE)
+        repo_name: string repository name (ex. robottelo)
 
     Returns:
         dict, keyed on the PR number, where values are dictionaries containing timing metrics
     """
     # TODO rewrite with GQL data
+    repo = RepoWrapper(organization, repo_name)
+    pr_metrics = [
+        (pr_num, round(pr.hours_to_first_review, 1), pr.author, pr.first_review.author)
+        for pr_num, pr in repo.pull_requests(count=pr_count).items()
+        if pr.hours_to_first_review is not None
+    ]
 
-    # Sort dict by the metric, not by the pr number
-    # metrics.items() is tuples of key/value
-    # use sorted with key of create_to_review on the value in the tuple
-    # rebuild dictionary with items in sorted order
-    # sorted_metrics = OrderedDict(
-    #         (pr, metrics)
-    #         for pr, metrics in sorted(pr_metrics.items(), key=lambda pr: pr[1].create_to_review)
-    #     )
-
-    # return sorted_metrics
-    pass
+    pr_metrics.sort(key=lambda tup: tup[1])  # sort by hours
+    return pr_metrics
 
 
 def reviewer_actions(org_name, team_slugs):
