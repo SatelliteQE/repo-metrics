@@ -1,6 +1,4 @@
-gh_repo: SatelliteQE/Robottelo
 gh_token: <GH token with read>
-gh_org: SatelliteQE
 metrics_output_file_prefix: "gathered-metrics"
 
 # teams in the organization that include reviewers
@@ -9,5 +7,5 @@ metrics_output_file_prefix: "gathered-metrics"
 reviewer_teams:
   SatelliteQE:
     robottelo:
-      - tier1: robottelo-tier-1-reviewers
-      - tier2: robottelo-tier-2-reviewers
+      tier1: robottelo-tier-1-reviewers
+      tier2: robottelo-tier-2-reviewers
