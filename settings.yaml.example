@@ -7,5 +7,7 @@ metrics_output_file_prefix: "gathered-metrics"
 # these keys are the 'slug' for the team, which you see in the address bar
 # Example: https://github.com/orgs/SatelliteQE/teams/tier-1-reviewers
 reviewer_teams:
-  - tier-1-reviewers
-  - tier-2-reviewers
+  SatelliteQE:
+    robottelo:
+      - tier1: robottelo-tier-1-reviewers
+      - tier2: robottelo-tier-2-reviewers

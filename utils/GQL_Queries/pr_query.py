@@ -1,5 +1,6 @@
 # Importable strings for GQL queries
-# Paginated on 50 PRs at a time
+# Paginated on 50 PRs at a time by default
+# pagination blocks and the cursor for pagination are variables for the query
 
 pr_review_query = """query getPRs($prCursor: String, $blockCount: Int = 50) {
   repository(owner:"SatelliteQE", name:"Robottelo") {
@@ -12,6 +13,11 @@ pr_review_query = """query getPRs($prCursor: String, $blockCount: Int = 50) {
         url
         createdAt
         isDraft
+        changedFiles
+        mergedBy {login}
+        state
+        additions
+        deletions
         timelineItems(first: 20, itemTypes: [PULL_REQUEST_REVIEW, PULL_REQUEST_REVIEW_THREAD, ISSUE_COMMENT, CONVERT_TO_DRAFT_EVENT, READY_FOR_REVIEW_EVENT]){
           totalCount
           nodes {

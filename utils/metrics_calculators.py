@@ -1,22 +1,14 @@
 from attrdict import AttrDict
 
 from .GQL_Queries.github_wrappers import RepoWrapper
-from config import settings
 
-
-GH_repo = settings.gh_repo
-GH_TOKEN = settings.gh_token
-
-SECONDS_TO_DAYS = 86400
-
+EMPTY = "---"
 
 """
-Functions for interacting with github's API, calculating a PR's various timing metrics.
+Functions for collecting and organizing various timing metrics.
 
 Metrics:
-    - time_to_comment: how long from PR creation/ready-for-review state to the first review, per pr
-    - TODO: time_from_first_to_second: how long from first approval to second review, average
-    - TODO: time_from_review_to_ready: how long from a rejected review to ready state, average
+    - single_pr_metrics: review timing and content context about specific PRs
     - TODO: reviews_per_week: number of reviews per week for the last 4 weeks, average
     - TODO: reviews_per_user: number of reviews per user in the last week
     -
@@ -29,7 +21,7 @@ class PullRequestMetrics(AttrDict):
     pass
 
 
-def time_to_review(organization, repo_name, pr_count):
+def single_pr_metrics(organization, repo_name, pr_count):
     """Iterate over the PRs in the repo and calculate times to the first comment
 
     Calculates the time delta per-PR from creation to comment, and from 'review' label to comment
@@ -43,13 +35,31 @@ def time_to_review(organization, repo_name, pr_count):
     """
     # TODO rewrite with GQL data
     repo = RepoWrapper(organization, repo_name)
-    pr_metrics = [
-        (pr_num, round(pr.hours_to_first_review, 1), pr.author, pr.first_review.author)
-        for pr_num, pr in repo.pull_requests(count=pr_count).items()
-        if pr.hours_to_first_review is not None
-    ]
+    pr_metrics = []
+    for pr_num, pr in repo.pull_requests(count=pr_count).items():
+        pr_metrics.append(
+            {
+                "PR": pr_num,
+                "Author": pr.author,
+                "State": pr.state,
+                "Files": pr.changed_files,
+                "Line Changes": f"+ {pr.additions} / - {pr.deletions}",
+                "Hours to Comment": pr.hours_to_first_review or EMPTY,
+                "Hours to Tier1": pr.hours_to_tier1 or EMPTY,
+                "Hours to Tier2": pr.hours_to_tier2 or EMPTY,
+                "Tier1 to Tier2": pr.hours_from_tier1_to_tier2 or EMPTY,
+                "Non-Tier Reviewers": ", ".join(pr.reviews_by_non_tier) or EMPTY,
+                "Tier1 Reviewers": ", ".join(
+                    set([r.author for r in pr.reviews_by_tier1])
+                ),
+                "Tier2 Reviewers": ", ".join(
+                    set([r.author for r in pr.reviews_by_tier2])
+                ),
+                "Merged By": pr.merged_by,
+            }
+        )
 
-    pr_metrics.sort(key=lambda tup: tup[1])  # sort by hours
+    pr_metrics.sort(key=lambda pr: pr["PR"])  # sort by pr number
     return pr_metrics
 
 

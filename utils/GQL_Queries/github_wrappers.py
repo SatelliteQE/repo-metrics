@@ -5,9 +5,11 @@ from cached_property import cached_property
 from gql import Client as gql_client
 from gql import gql
 from gql import RequestsHTTPTransport
+from logzero import logger
 
 from config import settings
 from utils.GQL_Queries.pr_query import pr_review_query
+from utils.GQL_Queries.review_teams_query import org_teams_query
 
 
 GH_TOKEN = settings.gh_token
@@ -77,13 +79,54 @@ class RepoWrapper:
                 events.append(event_class(**e))
 
             prws[int(pr_num)] = PRWrapper(
+                repo=self,
                 url=pr_node["url"],
                 author=pr_node["author"]["login"],
                 created_at=pr_node["createdAt"],
                 is_draft=pr_node["isDraft"],
                 timeline_events=events,
+                merged_by=(pr_node["mergedBy"] or {}).pop("login", None),
+                changed_files=pr_node["changedFiles"],
+                state=pr_node["state"],
+                additions=pr_node["additions"],
+                deletions=pr_node["deletions"],
             )
         return prws
+
+    @cached_property
+    def reviewer_teams(self):
+        """Look up teams on the org, compare to settings file for tier1/tier2 teams
+
+        Returns:
+            dictionary, keyed on 'tier1' and 'tier2', with lists of team members
+        """
+        org_teams = self.GH_CLIENT.execute(
+            gql(org_teams_query), variable_values={"organization": self.organization},
+        )["organization"]["teams"]["nodes"]
+        try:
+            settings_team_names = settings.reviewer_teams.get(self.organization).get(
+                self.repo_name
+            )
+            tier_1_team = [
+                t for t in org_teams if t["name"] == settings_team_names.tier1
+            ][0]
+            tier_2_team = [
+                t for t in org_teams if t["name"] == settings_team_names.tier2
+            ][0]
+            return {
+                "tier1": [m["login"] for m in tier_1_team["members"]["nodes"]],
+                "tier2": [m["login"] for m in tier_2_team["members"]["nodes"]],
+            }
+        except Exception:
+            logger.error(
+                "Reviewer teams have not been entered in settings.yaml, "
+                "or did not match teams on the organization."
+                f"[{self.organization}] teams from GitHub: "
+                f'{[t.get("name") for t in org_teams]}'
+            )
+            import sys
+
+            sys.exit(1)
 
 
 @attr.s
@@ -127,13 +170,17 @@ EVENT_CLASS_MAP = dict(
 class PRWrapper:
     """Class for modeling the data returned from the GQL query for PRs"""
 
+    repo = attr.ib()
     url = attr.ib()
     created_at = attr.ib(converter=lambda t: datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ"))
     author = attr.ib()
     timeline_events = attr.ib()
     is_draft = attr.ib()
-    # TODO
-    # is open? is merged?
+    state = attr.ib()
+    changed_files = attr.ib()
+    merged_by = attr.ib()
+    additions = attr.ib()
+    deletions = attr.ib()
 
     def __repr__(self):
         return (
@@ -142,20 +189,65 @@ class PRWrapper:
         )
 
     @cached_property
+    def reviews_and_comments(self):
+        """Collects reviews and PR comments, sorted by creation date"""
+        review_events = filter(
+            lambda e: isinstance(e, (PRReviewWrapper, PRCommentWrapper)),
+            self.timeline_events,
+        )
+        events_not_by_author = [
+            review for review in review_events if review.author != self.author
+        ]
+        events_not_by_author.sort(key=lambda r: r.created_at)
+        return events_not_by_author
+
+    @cached_property
+    def reviews_by_tier1(self):
+        if not self.reviews_and_comments:
+            return []
+        return [
+            review
+            for review in self.reviews_and_comments
+            if review.author in self.repo.reviewer_teams["tier1"]
+        ]
+
+    @cached_property
+    def reviews_by_tier2(self):
+        if not self.reviews_and_comments:
+            return []
+        return [
+            review
+            for review in self.reviews_and_comments
+            if review.author in self.repo.reviewer_teams["tier2"]
+        ]
+
+    @cached_property
+    def reviews_by_non_tier(self):
+        return list(
+            set([r.author for r in self.reviews_and_comments])
+            - (
+                set([r.author for r in self.reviews_by_tier1])
+                | set([r.author for r in self.reviews_by_tier2])
+            )
+        )
+
+    @cached_property
     def first_review(self):
         """When the first review on the PR occurred
         Sorts the reviews not by the author, oldest first
         Returns None if there are no reviews
         """
-        review_events = filter(
-            lambda e: isinstance(e, (PRReviewWrapper, PRCommentWrapper)),
-            self.timeline_events,
+        return None if not self.reviews_and_comments else self.reviews_and_comments[0]
+
+    @cached_property
+    def second_review(self):
+        """When the first review on the PR occurred
+        Sorts the reviews not by the author, oldest first
+        Returns None if there are no reviews
+        """
+        return (
+            None if len(self.reviews_and_comments) < 2 else self.reviews_and_comments[1]
         )
-        reviews_not_by_author = [
-            review for review in review_events if review.author != self.author
-        ]
-        reviews_not_by_author.sort(key=lambda r: r.created_at)
-        return None if not reviews_not_by_author else reviews_not_by_author[0]
 
     @cached_property
     def ready_for_review(self):
@@ -199,10 +291,58 @@ class PRWrapper:
         if self.first_review is None or self.is_draft:
             return None
 
-        else:
-            # case 2, use event for draft state
-            # case 1, use creation date
-            # both handled by self.ready_for_review
-            return (
+        # case 2, use event for draft state
+        # case 1, use creation date
+        # both handled by self.ready_for_review
+        return round(
+            (
                 self.first_review.created_at - self.ready_for_review[0].created_at
-            ).total_seconds() / SECONDS_TO_HOURS
+            ).total_seconds()
+            / SECONDS_TO_HOURS,
+            1,
+        )
+
+    @cached_property
+    def hours_to_tier1(self):
+        if not self.reviews_by_tier1:
+            return None
+        return round(
+            (
+                self.reviews_by_tier1[0].created_at
+                - self.ready_for_review[0].created_at
+            ).total_seconds()
+            / SECONDS_TO_HOURS,
+            1,
+        )
+
+    @cached_property
+    def hours_to_tier2(self):
+        """Calculate the time to the first approved tier2 review"""
+        if not self.reviews_by_tier2:
+            return None
+        return round(
+            (
+                self.reviews_by_tier2[0].created_at
+                - self.ready_for_review[0].created_at
+            ).total_seconds()
+            / SECONDS_TO_HOURS,
+            1,
+        )
+
+    @cached_property
+    def hours_from_tier1_to_tier2(self):
+        """This has some problems - if there is no approved tier1 review, this doesn't mean much
+        If there was no tier1 review at all, it means nothing
+        """
+        approved_reviews = [
+            r for r in self.reviews_by_tier1 if getattr(r, "state", None) == "APPROVED"
+        ]
+        if not approved_reviews or self.reviews_by_tier2 is None:
+            return None
+        return round(
+            (
+                self.second_review.created_at - approved_reviews[0].created_at
+            ).total_seconds()
+            / SECONDS_TO_HOURS,
+            1,
+        )

@@ -12,8 +12,6 @@ from utils import metrics_calculators
 
 
 # keys that will be read from settings files (dynaconf parsing) for command input defaults
-SETTINGS_ORG = "gh_org"
-SETTINGS_REPO = "gh_repo"
 SETTINGS_OUTPUT_PREFIX = "metrics_output_file_prefix"
 SETTINGS_REVIEWER_TEAMS = "reviewer_teams"
 
@@ -33,13 +31,11 @@ output_prefix_option = click.option(
 )
 org_name_option = click.option(
     "--org-name",
-    default=settings.get(SETTINGS_ORG, "SatelliteQE"),
+    default="SatelliteQE",
     help="The organization or user, for review counts across multiple repos",
 )
 repo_name_option = click.option(
-    "--repo-name",
-    default=settings.get(SETTINGS_REPO, "robottelo"),
-    help="The repository name, like robottelo",
+    "--repo-name", default="robottelo", help="The repository name, like robottelo",
 )
 pr_count_option = click.option(
     "--pr-count",
@@ -49,26 +45,22 @@ pr_count_option = click.option(
 
 
 @gather.command(
-    "time_to_review", help="Gather PR metrics for a GH repo (SatelliteQE/robottelo)"
+    "single_pr_metrics",
+    help="Gather metrics about individual PRs for a GH repo (SatelliteQE/robottelo)",
 )
 @org_name_option
 @repo_name_option
 @output_prefix_option
 @pr_count_option
 def time_to_review(repo_name, org_name, file_output_prefix, pr_count):
-    gathered_metrics = metrics_calculators.time_to_review(
+    gathered_metrics = metrics_calculators.single_pr_metrics(
         organization=org_name, repo_name=repo_name, pr_count=pr_count
     )
 
     click.echo("Gathered metrics for time to review", color="cyan")
     click.echo("-----------------------------------", color="cyan")
     click.echo(
-        tabulate(
-            gathered_metrics,
-            headers=["PR", "Hours to first review", "Author", "Review Author"],
-            tablefmt="github",
-            floatfmt=".2f",
-        )
+        tabulate(gathered_metrics, headers="keys", tablefmt="github", floatfmt=".1f",)
     )
 
     output_filename = f"{Path(file_output_prefix).stem}-{__name__}-{int(time())}.json"
