@@ -18,7 +18,7 @@ pr_review_query = """query getPRs($prCursor: String, $blockCount: Int = 50) {
         state
         additions
         deletions
-        timelineItems(first: 20, itemTypes: [PULL_REQUEST_REVIEW, PULL_REQUEST_REVIEW_THREAD, ISSUE_COMMENT, CONVERT_TO_DRAFT_EVENT, READY_FOR_REVIEW_EVENT]){
+        timelineItems(first: 10, itemTypes: [PULL_REQUEST_REVIEW, PULL_REQUEST_REVIEW_THREAD, ISSUE_COMMENT, CONVERT_TO_DRAFT_EVENT, READY_FOR_REVIEW_EVENT]){
           totalCount
           nodes {
             ... on ConvertToDraftEvent {

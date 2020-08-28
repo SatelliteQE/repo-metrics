@@ -4,7 +4,7 @@ import attr
 from cached_property import cached_property
 from gql import Client as gql_client
 from gql import gql
-from gql import RequestsHTTPTransport
+from gql.transport.requests import RequestsHTTPTransport
 from logzero import logger
 
 from config import settings
@@ -79,6 +79,7 @@ class RepoWrapper:
                 events.append(event_class(**e))
 
             prws[int(pr_num)] = PRWrapper(
+                number=pr_num,
                 repo=self,
                 url=pr_node["url"],
                 author=pr_node["author"]["login"],
@@ -170,6 +171,7 @@ EVENT_CLASS_MAP = dict(
 class PRWrapper:
     """Class for modeling the data returned from the GQL query for PRs"""
 
+    number = attr.ib()
     repo = attr.ib()
     url = attr.ib()
     created_at = attr.ib(converter=lambda t: datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ"))
@@ -271,6 +273,15 @@ class PRWrapper:
         ]
 
     @cached_property
+    def comment_comparison_date(self):
+        # if there were comments before a 'ready for review' event, use PR creation
+        if self.first_review.created_at > self.ready_for_review[0].created_at:
+            comparison_date = self.ready_for_review[0].created_at
+        else:
+            comparison_date = self.created_at
+        return comparison_date
+
+    @cached_property
     def hours_to_first_review(self):
         """calculate the time from being ready for review to the first review or comment
 
@@ -294,9 +305,10 @@ class PRWrapper:
         # case 2, use event for draft state
         # case 1, use creation date
         # both handled by self.ready_for_review
+        # if there were comments before a 'ready for review' event, use PR creation
         return round(
             (
-                self.first_review.created_at - self.ready_for_review[0].created_at
+                self.first_review.created_at - self.comment_comparison_date
             ).total_seconds()
             / SECONDS_TO_HOURS,
             1,
@@ -308,8 +320,7 @@ class PRWrapper:
             return None
         return round(
             (
-                self.reviews_by_tier1[0].created_at
-                - self.ready_for_review[0].created_at
+                self.reviews_by_tier1[0].created_at - self.comment_comparison_date
             ).total_seconds()
             / SECONDS_TO_HOURS,
             1,
@@ -322,8 +333,7 @@ class PRWrapper:
             return None
         return round(
             (
-                self.reviews_by_tier2[0].created_at
-                - self.ready_for_review[0].created_at
+                self.reviews_by_tier2[0].created_at - self.comment_comparison_date
             ).total_seconds()
             / SECONDS_TO_HOURS,
             1,
@@ -337,11 +347,11 @@ class PRWrapper:
         approved_reviews = [
             r for r in self.reviews_by_tier1 if getattr(r, "state", None) == "APPROVED"
         ]
-        if not approved_reviews or self.reviews_by_tier2 is None:
+        if not approved_reviews or not self.reviews_by_tier2:
             return None
         return round(
             (
-                self.second_review.created_at - approved_reviews[0].created_at
+                self.reviews_by_tier2[0].created_at - approved_reviews[0].created_at
             ).total_seconds()
             / SECONDS_TO_HOURS,
             1,

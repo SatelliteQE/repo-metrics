@@ -53,19 +53,25 @@ pr_count_option = click.option(
 @output_prefix_option
 @pr_count_option
 def time_to_review(repo_name, org_name, file_output_prefix, pr_count):
-    gathered_metrics = metrics_calculators.single_pr_metrics(
+    pr_metrics, stat_metrics = metrics_calculators.single_pr_metrics(
         organization=org_name, repo_name=repo_name, pr_count=pr_count
     )
 
-    click.echo("Gathered metrics for time to review", color="cyan")
+    click.echo("-----------------------------------", color="cyan")
+    click.echo("Review Metrics By PR", color="cyan")
+    click.echo("-----------------------------------", color="cyan")
+    click.echo(tabulate(pr_metrics, headers="keys", tablefmt="github", floatfmt=".1f",))
+
+    click.echo("-----------------------------------", color="cyan")
+    click.echo("Review Metric Statistics", color="cyan")
     click.echo("-----------------------------------", color="cyan")
     click.echo(
-        tabulate(gathered_metrics, headers="keys", tablefmt="github", floatfmt=".1f",)
+        tabulate(stat_metrics, headers="keys", tablefmt="github", floatfmt=".1f",)
     )
 
     output_filename = f"{Path(file_output_prefix).stem}-{__name__}-{int(time())}.json"
     click.echo(f"Writing metrics as JSON to {output_filename}")
-    file_io.write_to_output(output_filename, gathered_metrics)
+    file_io.write_to_output(output_filename, pr_metrics)
 
 
 @gather.command("reviewer_actions")

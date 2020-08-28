@@ -1,8 +1,22 @@
+from statistics import fmean
+from statistics import median
+from statistics import pstdev
+
 from attrdict import AttrDict
 
 from .GQL_Queries.github_wrappers import RepoWrapper
 
 EMPTY = "---"
+
+HEADER_H_COM = "Hours to Comment"
+HEADER_H_T1 = "Hours to Tier1"
+HEADER_H_T2 = "Hours to Tier2"
+
+STAT_HEADERS = {
+    "fmean": "Mean",
+    "median": "Median",
+    "pstdev": "Pop. Standard Deviation",
+}
 
 """
 Functions for collecting and organizing various timing metrics.
@@ -31,22 +45,27 @@ def single_pr_metrics(organization, repo_name, pr_count):
         repo_name: string repository name (ex. robottelo)
 
     Returns:
+        tuple of
         dict, keyed on the PR number, where values are dictionaries containing timing metrics
+        dict, keyed with table headers, of statistical values
+
     """
-    # TODO rewrite with GQL data
     repo = RepoWrapper(organization, repo_name)
     pr_metrics = []
-    for pr_num, pr in repo.pull_requests(count=pr_count).items():
+    for pr in repo.pull_requests(count=pr_count).values():
+        pr_state = pr.state
+        if pr_state == "OPEN":
+            pr_state = f"{pr_state}{' - DRAFT' if pr.is_draft else ''}"
         pr_metrics.append(
             {
-                "PR": pr_num,
+                "PR": pr.number,
                 "Author": pr.author,
-                "State": pr.state,
+                "State": pr_state,
                 "Files": pr.changed_files,
                 "Line Changes": f"+ {pr.additions} / - {pr.deletions}",
-                "Hours to Comment": pr.hours_to_first_review or EMPTY,
-                "Hours to Tier1": pr.hours_to_tier1 or EMPTY,
-                "Hours to Tier2": pr.hours_to_tier2 or EMPTY,
+                HEADER_H_COM: pr.hours_to_first_review or EMPTY,
+                HEADER_H_T1: pr.hours_to_tier1 or EMPTY,
+                HEADER_H_T2: pr.hours_to_tier2 or EMPTY,
                 "Tier1 to Tier2": pr.hours_from_tier1_to_tier2 or EMPTY,
                 "Non-Tier Reviewers": ", ".join(pr.reviews_by_non_tier) or EMPTY,
                 "Tier1 Reviewers": ", ".join(
@@ -59,8 +78,23 @@ def single_pr_metrics(organization, repo_name, pr_count):
             }
         )
 
-    pr_metrics.sort(key=lambda pr: pr["PR"])  # sort by pr number
-    return pr_metrics
+    # calculate some column averages
+    hours_to_comment = [p[HEADER_H_COM] for p in pr_metrics if p[HEADER_H_COM] != EMPTY]
+    hours_to_tier1 = [p[HEADER_H_T1] for p in pr_metrics if p[HEADER_H_T1] != EMPTY]
+    hours_to_tier2 = [p[HEADER_H_T2] for p in pr_metrics if p[HEADER_H_T2] != EMPTY]
+    stat_metrics = []
+    for stat in [fmean, median, pstdev]:
+        stat_metrics.append(
+            {
+                "Metric": STAT_HEADERS[stat.__name__],
+                HEADER_H_COM: stat(hours_to_comment),
+                HEADER_H_T1: stat(hours_to_tier1),
+                HEADER_H_T2: stat(hours_to_tier2),
+            }
+        )
+
+    pr_metrics.sort(key=lambda n: n["PR"], reverse=True)  # sort by pr number
+    return pr_metrics, stat_metrics
 
 
 def reviewer_actions(org_name, team_slugs):
