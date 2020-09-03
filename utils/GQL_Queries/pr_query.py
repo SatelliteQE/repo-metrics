@@ -15,6 +15,7 @@ pr_review_query = """query getPRs($prCursor: String, $blockCount: Int = 50) {
         isDraft
         changedFiles
         mergedBy {login}
+        mergedAt
         state
         additions
         deletions

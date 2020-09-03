@@ -113,6 +113,11 @@ class RepoWrapper:
                     e["created_at"] = e.pop("createdAt")
                 events.append(event_class(**e))
 
+            if pr_node["mergedAt"] is not None:
+                pr_merged = datetime.strptime(pr_node["mergedAt"], GH_TS_FMT)
+            else:
+                pr_merged = None
+
             prws[int(pr_num)] = PRWrapper(
                 number=pr_num,
                 repo=self,
@@ -122,6 +127,7 @@ class RepoWrapper:
                 is_draft=pr_node["isDraft"],
                 timeline_events=events,
                 merged_by=(pr_node["mergedBy"] or {}).pop("login", None),
+                merged_at=pr_merged,
                 changed_files=pr_node["changedFiles"],
                 state=pr_node["state"],
                 additions=pr_node["additions"],
@@ -130,22 +136,39 @@ class RepoWrapper:
         return prws
 
     def reviewer_team_actions(self, pr_count=100):
-        """Go through PRs and pull out reviewer actions, collecting them by reviewer teams"""
+        """Go through PRs and pull out reviewer actions, collecting them by reviewer teams
+
+        Returns
+            dictionary of tier1/tier2, where for each actions are listed for every member in team
+            count of PRs opened included with tier1, author as 'opened'
+            count of PRs merged included with tier2, author as 'merged'
+        """
         reviewer_team_member_actions = {
             k: {m: [] for m in v} for k, v in self.reviewer_teams.items()
         }
+        reviewer_team_member_actions["tier1"]["opened"] = []
+        reviewer_team_member_actions["tier2"]["merged"] = []
         for pr in self.pull_requests(count=pr_count).values():
-            for t1 in [
+            t1_reviews_only = [
                 r for r in pr.reviews_by_tier1 if isinstance(r, PRReviewWrapper)
-            ]:
+            ]
+            for t1 in t1_reviews_only:
                 reviewer_team_member_actions["tier1"][t1.author].append(
                     (t1.created_at, t1.state)
                 )
-            for t2 in [
+            reviewer_team_member_actions["tier1"]["opened"].append(
+                (pr.created_at, "ready")
+            )
+            t2_reviews_only = [
                 r for r in pr.reviews_by_tier2 if isinstance(r, PRReviewWrapper)
-            ]:
+            ]
+            for t2 in t2_reviews_only:
                 reviewer_team_member_actions["tier2"][t2.author].append(
                     (t2.created_at, t2.state)
+                )
+            if pr.merged_at is not None:
+                reviewer_team_member_actions["tier2"]["merged"].append(
+                    (pr.merged_at, "merged")
                 )
         return reviewer_team_member_actions
 
@@ -201,6 +224,7 @@ class PRWrapper:
     state = attr.ib()
     changed_files = attr.ib()
     merged_by = attr.ib()
+    merged_at = attr.ib()
     additions = attr.ib()
     deletions = attr.ib()
 

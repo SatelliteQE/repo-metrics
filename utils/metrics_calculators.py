@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import date
 from statistics import fmean
 from statistics import median
 from statistics import pstdev
@@ -118,28 +119,34 @@ def reviewer_actions(organization, repository, pr_count=100):
     # columns are individuals with count of reviews in that week
 
     # go through t1 actions, create new dict keyed by tuple of year,week
-    t1_by_week = {}
+    t1_by_week = defaultdict(lambda: defaultdict(int))
     for reviewer, actions in tier1_actions.items():
         for action in actions:
-            date_tuple = action[0].isocalendar()[0:2]
-            if date_tuple not in t1_by_week:
-                t1_by_week[date_tuple] = defaultdict(int)
-            t1_by_week[date_tuple][reviewer] += 1
+            t1_by_week[action[0].isocalendar()[0:2]][reviewer] += 1
 
-    t2_by_week = {}
+    t2_by_week = defaultdict(lambda: defaultdict(int))
     for reviewer, actions in tier2_actions.items():
         for action in actions:
-            date_tuple = action[0].isocalendar()[0:2]
-            if date_tuple not in t2_by_week:
-                t2_by_week[date_tuple] = defaultdict(int)
-            t2_by_week[date_tuple][reviewer] += 1
+            t2_by_week[action[0].isocalendar()[0:2]][reviewer] += 1
 
     t1_metrics = []
     for week, actions in t1_by_week.items():
-        t1_metrics.append({"Week": str(week), **actions})
+        t1_metrics.append(
+            {
+                "Week": f"{date.fromisocalendar(week[0], week[1], 1)} to "
+                f"{date.fromisocalendar(week[0], week[1], 7)}",
+                **actions,
+            }
+        )
     t2_metrics = []
     for week, actions in t2_by_week.items():
-        t2_metrics.append({"Week": str(week), **actions})
+        t2_metrics.append(
+            {
+                "Week": f"{date.fromisocalendar(week[0], week[1], 1)} to "
+                f"{date.fromisocalendar(week[0], week[1], 7)}",
+                **actions,
+            }
+        )
 
     t1_metrics.sort(key=lambda m: m["Week"], reverse=True)
     t2_metrics.sort(key=lambda m: m["Week"], reverse=True)
