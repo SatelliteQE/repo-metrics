@@ -31,6 +31,41 @@ class RepoWrapper:
     )
     GH_CLIENT = gql_client(transport=GQL_TX, fetch_schema_from_transport=True)
 
+    @cached_property
+    def reviewer_teams(self):
+        """Look up teams on the org, compare to settings file for tier1/tier2 teams
+
+        Returns:
+            dictionary, keyed on 'tier1' and 'tier2', with lists of team members
+        """
+        org_teams = self.GH_CLIENT.execute(
+            gql(org_teams_query), variable_values={"organization": self.organization},
+        )["organization"]["teams"]["nodes"]
+        try:
+            settings_team_names = settings.reviewer_teams.get(self.organization).get(
+                self.repo_name
+            )
+            tier_1_team = [
+                t for t in org_teams if t["name"] == settings_team_names.tier1
+            ][0]
+            tier_2_team = [
+                t for t in org_teams if t["name"] == settings_team_names.tier2
+            ][0]
+            return {
+                "tier1": [m["login"] for m in tier_1_team["members"]["nodes"]],
+                "tier2": [m["login"] for m in tier_2_team["members"]["nodes"]],
+            }
+        except Exception:
+            logger.error(
+                "Reviewer teams have not been entered in settings.yaml, "
+                "or did not match teams on the organization."
+                f"[{self.organization}] teams from GitHub: "
+                f'{[t.get("name") for t in org_teams]}'
+            )
+            import sys
+
+            sys.exit(1)
+
     def pull_requests(self, count=100, block_count=100):
         """dictionary of PRWrapper instances, keyed on PR numbers
         Args:
@@ -94,40 +129,25 @@ class RepoWrapper:
             )
         return prws
 
-    @cached_property
-    def reviewer_teams(self):
-        """Look up teams on the org, compare to settings file for tier1/tier2 teams
-
-        Returns:
-            dictionary, keyed on 'tier1' and 'tier2', with lists of team members
-        """
-        org_teams = self.GH_CLIENT.execute(
-            gql(org_teams_query), variable_values={"organization": self.organization},
-        )["organization"]["teams"]["nodes"]
-        try:
-            settings_team_names = settings.reviewer_teams.get(self.organization).get(
-                self.repo_name
-            )
-            tier_1_team = [
-                t for t in org_teams if t["name"] == settings_team_names.tier1
-            ][0]
-            tier_2_team = [
-                t for t in org_teams if t["name"] == settings_team_names.tier2
-            ][0]
-            return {
-                "tier1": [m["login"] for m in tier_1_team["members"]["nodes"]],
-                "tier2": [m["login"] for m in tier_2_team["members"]["nodes"]],
-            }
-        except Exception:
-            logger.error(
-                "Reviewer teams have not been entered in settings.yaml, "
-                "or did not match teams on the organization."
-                f"[{self.organization}] teams from GitHub: "
-                f'{[t.get("name") for t in org_teams]}'
-            )
-            import sys
-
-            sys.exit(1)
+    def reviewer_team_actions(self, pr_count=100):
+        """Go through PRs and pull out reviewer actions, collecting them by reviewer teams"""
+        reviewer_team_member_actions = {
+            k: {m: [] for m in v} for k, v in self.reviewer_teams.items()
+        }
+        for pr in self.pull_requests(count=pr_count).values():
+            for t1 in [
+                r for r in pr.reviews_by_tier1 if isinstance(r, PRReviewWrapper)
+            ]:
+                reviewer_team_member_actions["tier1"][t1.author].append(
+                    (t1.created_at, t1.state)
+                )
+            for t2 in [
+                r for r in pr.reviews_by_tier2 if isinstance(r, PRReviewWrapper)
+            ]:
+                reviewer_team_member_actions["tier2"][t2.author].append(
+                    (t2.created_at, t2.state)
+                )
+        return reviewer_team_member_actions
 
 
 @attr.s

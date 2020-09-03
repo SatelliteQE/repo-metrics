@@ -1,3 +1,4 @@
+from collections import defaultdict
 from statistics import fmean
 from statistics import median
 from statistics import pstdev
@@ -35,7 +36,7 @@ class PullRequestMetrics(AttrDict):
     pass
 
 
-def single_pr_metrics(organization, repo_name, pr_count):
+def single_pr_metrics(organization, repository, pr_count=100):
     """Iterate over the PRs in the repo and calculate times to the first comment
 
     Calculates the time delta per-PR from creation to comment, and from 'review' label to comment
@@ -50,7 +51,7 @@ def single_pr_metrics(organization, repo_name, pr_count):
         dict, keyed with table headers, of statistical values
 
     """
-    repo = RepoWrapper(organization, repo_name)
+    repo = RepoWrapper(organization, repository)
     pr_metrics = []
     for pr in repo.pull_requests(count=pr_count).values():
         pr_state = pr.state
@@ -97,22 +98,49 @@ def single_pr_metrics(organization, repo_name, pr_count):
     return pr_metrics, stat_metrics
 
 
-def reviewer_actions(org_name, team_slugs):
-    """Collect metrics around reviewer activity on a given repo
+def reviewer_actions(organization, repository, pr_count=100):
+    """Collect metrics around reviewer activity in a given organization
 
-    Gets list of members from GH organization teams.
+    Gets list of members from GH organization teams, pulled from config
 
     Organize metrics by:
         - given reviewer teams, and reviews by non-team members
         - within teams, number of reviews per reviewer
     """
-    # Shriver: It might make sense to actually collect this data within time_to_Review
-    # initial plan for implementation involved getting events from users
-    # but those user events don't include PR comments
+    repo = RepoWrapper(organization, repository)
+    team_actions = repo.reviewer_team_actions(pr_count=pr_count)
+    tier1_actions = team_actions.pop("tier1")
+    tier2_actions = team_actions.pop("tier2")
 
-    # get a dictionary of team slug keys and member login lists
-    # lots of API oddities to deal with here
-    # There are reviews (approve, comment, reject) that have a body to them
-    # There are review comments - comments made on the diff view
-    # There are PR comments - comments made on the PR discussion page
-    pass
+    # split actions into weekly blocks to show review/comment actions over time
+    # want to create list of dictionaries
+    # first item is the week
+    # columns are individuals with count of reviews in that week
+
+    # go through t1 actions, create new dict keyed by tuple of year,week
+    t1_by_week = {}
+    for reviewer, actions in tier1_actions.items():
+        for action in actions:
+            date_tuple = action[0].isocalendar()[0:2]
+            if date_tuple not in t1_by_week:
+                t1_by_week[date_tuple] = defaultdict(int)
+            t1_by_week[date_tuple][reviewer] += 1
+
+    t2_by_week = {}
+    for reviewer, actions in tier2_actions.items():
+        for action in actions:
+            date_tuple = action[0].isocalendar()[0:2]
+            if date_tuple not in t2_by_week:
+                t2_by_week[date_tuple] = defaultdict(int)
+            t2_by_week[date_tuple][reviewer] += 1
+
+    t1_metrics = []
+    for week, actions in t1_by_week.items():
+        t1_metrics.append({"Week": str(week), **actions})
+    t2_metrics = []
+    for week, actions in t2_by_week.items():
+        t2_metrics.append({"Week": str(week), **actions})
+
+    t1_metrics.sort(key=lambda m: m["Week"], reverse=True)
+    t2_metrics.sort(key=lambda m: m["Week"], reverse=True)
+    return t1_metrics, t2_metrics
