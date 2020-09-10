@@ -66,7 +66,7 @@ class RepoWrapper:
 
             sys.exit(1)
 
-    def pull_requests(self, count=100, block_count=100):
+    def pull_requests(self, count=100, block_count=50):
         """dictionary of PRWrapper instances, keyed on PR numbers
         Args:
             count (Int): total number of PRs fetched

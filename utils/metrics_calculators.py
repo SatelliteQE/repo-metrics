@@ -10,6 +10,8 @@ from .GQL_Queries.github_wrappers import RepoWrapper
 
 EMPTY = "---"
 
+DATE_FMT = "%y-%m-%d"
+
 HEADER_H_COM = "Hours to Comment"
 HEADER_H_T1 = "Hours to Tier1"
 HEADER_H_T2 = "Hours to Tier2"
@@ -133,7 +135,7 @@ def reviewer_actions(organization, repository, pr_count=100):
     for week, actions in t1_by_week.items():
         t1_metrics.append(
             {
-                "Week": f"{date.fromisocalendar(week[0], week[1], 1)} to "
+                "Week": f"{date.fromisocalendar(week[0], week[1], 1).strftime(DATE_FMT)} to "
                 f"{date.fromisocalendar(week[0], week[1], 7)}",
                 **actions,
             }
@@ -142,7 +144,7 @@ def reviewer_actions(organization, repository, pr_count=100):
     for week, actions in t2_by_week.items():
         t2_metrics.append(
             {
-                "Week": f"{date.fromisocalendar(week[0], week[1], 1)} to "
+                "Week": f"{date.fromisocalendar(week[0], week[1], 1).strftime(DATE_FMT)} to "
                 f"{date.fromisocalendar(week[0], week[1], 7)}",
                 **actions,
             }

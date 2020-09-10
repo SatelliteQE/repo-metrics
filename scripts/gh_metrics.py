@@ -1,11 +1,12 @@
 # import json
 # from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
-from time import time
 
 import click
 from tabulate import tabulate
 
+from config import METRICS_OUTPUT
 from config import settings
 from utils import file_io
 from utils import metrics_calculators
@@ -48,14 +49,14 @@ pr_count_option = click.option(
 
 
 @gather.command(
-    "single_pr_metrics",
+    "pr-metrics",
     help="Gather metrics about individual PRs for a GH repo (SatelliteQE/robottelo)",
 )
 @org_name_option
 @repo_name_option
 @output_prefix_option
 @pr_count_option
-def time_to_review(org, repo, file_output_prefix, pr_count):
+def repo_pr_metrics(org, repo, file_output_prefix, pr_count):
     for repo_name in repo:
         pr_metrics, stat_metrics = metrics_calculators.single_pr_metrics(
             organization=org, repository=repo_name, pr_count=pr_count
@@ -75,12 +76,12 @@ def time_to_review(org, repo, file_output_prefix, pr_count):
             tabulate(stat_metrics, headers="keys", tablefmt="github", floatfmt=".1f")
         )
 
-        pr_metrics_filename = (
+        pr_metrics_filename = METRICS_OUTPUT.joinpath(
             f"{Path(file_output_prefix).stem}-"
             f"{org}-"
             f"{repo_name}-"
             "pr_metrics-"
-            f"{int(time())}.html"
+            f"{datetime.now().isoformat(timespec='minutes')}.html"
         )
         click.echo(f"Writing PR metrics as HTML to {pr_metrics_filename}")
         file_io.write_to_output(
@@ -88,12 +89,12 @@ def time_to_review(org, repo, file_output_prefix, pr_count):
             tabulate(pr_metrics, headers="keys", tablefmt="html", floatfmt=".1f"),
         )
 
-        stat_metrics_filename = (
+        stat_metrics_filename = METRICS_OUTPUT.joinpath(
             f"{Path(file_output_prefix).stem}-"
             f"{org}-"
             f"{repo_name}-"
             "stat_metrics-"
-            f"{int(time())}.html"
+            f"{datetime.now().isoformat(timespec='minutes')}.html"
         )
         click.echo(f"Writing statistics metrics as HTML to {stat_metrics_filename}")
         file_io.write_to_output(
@@ -102,7 +103,7 @@ def time_to_review(org, repo, file_output_prefix, pr_count):
         )
 
 
-@gather.command("reviewer_actions")
+@gather.command("reviewer-actions")
 @org_name_option
 @repo_name_option
 @output_prefix_option
@@ -130,12 +131,12 @@ def reviewer_actions(org, repo, file_output_prefix, pr_count):
         click.echo("-" * len(header))
         click.echo(tabulate(t2_metrics, headers="keys", tablefmt="github"))
 
-        tier1_metrics_filename = (
+        tier1_metrics_filename = METRICS_OUTPUT.joinpath(
             f"{Path(file_output_prefix).stem}-"
             f"{org}-"
             f"{repo_name}-"
             "tier1_reviewers-"
-            f"{int(time())}.html"
+            f"{datetime.now().isoformat(timespec='minutes')}.html"
         )
         click.echo(f"Writing PR metrics as HTML to {tier1_metrics_filename}")
         file_io.write_to_output(
@@ -143,20 +144,15 @@ def reviewer_actions(org, repo, file_output_prefix, pr_count):
             tabulate(t1_metrics, headers="keys", tablefmt="html"),
         )
 
-        tier2_metrics_filename = (
+        tier2_metrics_filename = METRICS_OUTPUT.joinpath(
             f"{Path(file_output_prefix).stem}-"
             f"{org}-"
             f"{repo_name}-"
             "tier2_reviewers-"
-            f"{int(time())}.html"
+            f"{datetime.now().isoformat(timespec='minutes')}.html"
         )
         click.echo(f"Writing PR metrics as HTML to {tier2_metrics_filename}")
         file_io.write_to_output(
             tier2_metrics_filename,
             tabulate(t2_metrics, headers="keys", tablefmt="html"),
         )
-
-
-# for debugging purposes
-if __name__ == "__main__":
-    metrics = gather()
