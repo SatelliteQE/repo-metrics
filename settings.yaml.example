@@ -9,3 +9,9 @@ reviewer_teams:
     robottelo:
       tier1: robottelo-tier-1-reviewers
       tier2: robottelo-tier-2-reviewers
+    nailgun:
+      tier1: nailgun-tier-1-reviewers
+      tier2: nailgun-tier-2-reviewers
+    airgun:
+      tier1: airgun-tier-1-reviewers
+      tier2: airgun-tier-2-reviewers
