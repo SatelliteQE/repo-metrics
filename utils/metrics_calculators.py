@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import date
-from statistics import fmean
+from statistics import mean
 from statistics import median
 from statistics import pstdev
 
@@ -17,7 +17,7 @@ HEADER_H_T1 = "Hours to Tier1"
 HEADER_H_T2 = "Hours to Tier2"
 
 STAT_HEADERS = {
-    "fmean": "Mean",
+    "mean": "Mean",
     "median": "Median",
     "pstdev": "Pop. Standard Deviation",
 }
@@ -87,7 +87,7 @@ def single_pr_metrics(organization, repository, pr_count=100):
     hours_to_tier1 = [p[HEADER_H_T1] for p in pr_metrics if p[HEADER_H_T1] != EMPTY]
     hours_to_tier2 = [p[HEADER_H_T2] for p in pr_metrics if p[HEADER_H_T2] != EMPTY]
     stat_metrics = []
-    for stat in [fmean, median, pstdev]:
+    for stat in [mean, median, pstdev]:
         stat_metrics.append(
             {
                 "Metric": STAT_HEADERS[stat.__name__],
