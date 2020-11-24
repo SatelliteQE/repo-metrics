@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import date
-from statistics import fmean
+from statistics import mean
 from statistics import median
 from statistics import pstdev
 
@@ -17,7 +17,7 @@ HEADER_H_T1 = "Hours to Tier1"
 HEADER_H_T2 = "Hours to Tier2"
 
 STAT_HEADERS = {
-    "fmean": "Mean",
+    "mean": "Mean",
     "median": "Median",
     "pstdev": "Pop. Standard Deviation",
 }
