@@ -87,7 +87,7 @@ def single_pr_metrics(organization, repository, pr_count=100):
     hours_to_tier1 = [p[HEADER_H_T1] for p in pr_metrics if p[HEADER_H_T1] != EMPTY]
     hours_to_tier2 = [p[HEADER_H_T2] for p in pr_metrics if p[HEADER_H_T2] != EMPTY]
     stat_metrics = []
-    for stat in [fmean, median, pstdev]:
+    for stat in [mean, median, pstdev]:
         stat_metrics.append(
             {
                 "Metric": STAT_HEADERS[stat.__name__],
