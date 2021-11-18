@@ -5,6 +5,7 @@
 .eggs
 .idea
 .vscode
+*.code-workspace
 .qe-pr-metrics
 qe_pr_metrics.egg-info/
 
