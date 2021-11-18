@@ -26,10 +26,14 @@ class RepoWrapper:
     organization = attr.ib()
     repo_name = attr.ib()
 
-    GQL_TX = RequestsHTTPTransport(
-        url=GH_GQL_URL, headers={"Authorization": f"bearer {GH_TOKEN}"}
-    )
-    GH_CLIENT = gql_client(transport=GQL_TX, fetch_schema_from_transport=True)
+    @cached_property
+    def client_session(self):
+        transport = RequestsHTTPTransport(
+            url=GH_GQL_URL, headers={"Authorization": f"bearer {GH_TOKEN}"}
+        )   
+        client = gql_client(transport=transport, fetch_schema_from_transport=True) 
+        with client as session:
+            yield session
 
     @cached_property
     def reviewer_teams(self):
@@ -38,7 +42,7 @@ class RepoWrapper:
         Returns:
             dictionary, keyed on 'tier1' and 'tier2', with lists of team members
         """
-        org_teams = self.GH_CLIENT.execute(
+        org_teams = self.client_session.execute(
             gql(org_teams_query), variable_values={"organization": self.organization},
         )["organization"]["teams"]["nodes"]
         try:
@@ -79,7 +83,7 @@ class RepoWrapper:
         fetched = 0  # tracks total number of PRs pulled
         gql_pr_cursor = None
         while fetched < count:
-            pr_block = self.GH_CLIENT.execute(
+            pr_block = self.client_session.execute(
                 gql(pr_review_query),
                 variable_values={"prCursor": gql_pr_cursor, "blockCount": block_count},
             )
