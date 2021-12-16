@@ -1,15 +1,19 @@
+from collections import defaultdict
 from datetime import datetime
+from datetime import timedelta
 
 import attr
+from box import Box
 from cached_property import cached_property
-from gql import Client as gql_client
+from gql import Client as GqlClient
 from gql import gql
 from gql.transport.requests import RequestsHTTPTransport
 from logzero import logger
 
 from config import settings
-from utils.GQL_Queries.pr_query import pr_review_query
-from utils.GQL_Queries.review_teams_query import org_teams_query
+from utils.GQL_Queries import contributors_query
+from utils.GQL_Queries import pr_query
+from utils.GQL_Queries import review_teams_query
 
 
 GH_TOKEN = settings.gh_token
@@ -17,6 +21,21 @@ GH_GQL_URL = "https://api.github.com/graphql"
 GH_TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 SECONDS_TO_HOURS = 3600
+
+WEEK_DELTA = timedelta(weeks=1)
+NOW = datetime.now()
+
+
+@attr.s
+class GQLClient:
+    transport = RequestsHTTPTransport(
+        url=GH_GQL_URL, headers={"Authorization": f"bearer {GH_TOKEN}"}
+    )
+
+    @cached_property
+    def session(self):
+        client = GqlClient(transport=self.transport, fetch_schema_from_transport=True)
+        return client
 
 
 @attr.s
@@ -26,14 +45,7 @@ class RepoWrapper:
     organization = attr.ib()
     repo_name = attr.ib()
 
-    @cached_property
-    def client_session(self):
-        transport = RequestsHTTPTransport(
-            url=GH_GQL_URL, headers={"Authorization": f"bearer {GH_TOKEN}"}
-        )   
-        client = gql_client(transport=transport, fetch_schema_from_transport=True) 
-        with client as session:
-            yield session
+    gql_client = GQLClient()
 
     @cached_property
     def reviewer_teams(self):
@@ -42,9 +54,11 @@ class RepoWrapper:
         Returns:
             dictionary, keyed on 'tier1' and 'tier2', with lists of team members
         """
-        org_teams = self.client_session.execute(
-            gql(org_teams_query), variable_values={"organization": self.organization},
-        )["organization"]["teams"]["nodes"]
+        with self.gql_client.session as gql_session:
+            org_teams = gql_session.execute(
+                gql(review_teams_query.org_teams_query),
+                variable_values={"organization": self.organization},
+            )["organization"]["teams"]["nodes"]
         try:
             settings_team_names = settings.reviewer_teams.get(self.organization).get(
                 self.repo_name
@@ -82,16 +96,20 @@ class RepoWrapper:
         pr_nodes = []
         fetched = 0  # tracks total number of PRs pulled
         gql_pr_cursor = None
-        while fetched < count:
-            pr_block = self.client_session.execute(
-                gql(pr_review_query),
-                variable_values={"prCursor": gql_pr_cursor, "blockCount": block_count},
-            )
-            gql_pr_cursor = pr_block["repository"]["pullRequests"]["pageInfo"][
-                "endCursor"
-            ]
-            pr_nodes.extend(pr_block["repository"]["pullRequests"]["nodes"])
-            fetched += block_count
+        with self.gql_client.session as gql_session:
+            while fetched < count:
+                pr_block = gql_session.execute(
+                    gql(pr_query.pr_review_query),
+                    variable_values={
+                        "prCursor": gql_pr_cursor,
+                        "blockCount": block_count,
+                    },
+                )
+                gql_pr_cursor = pr_block["repository"]["pullRequests"]["pageInfo"][
+                    "endCursor"
+                ]
+                pr_nodes.extend(pr_block["repository"]["pullRequests"]["nodes"])
+                fetched += block_count
         prws = {}
         # flatten data_blocks a bit, we just want the nodes
         for pr_node in pr_nodes:
@@ -217,6 +235,8 @@ EVENT_CLASS_MAP = dict(
 @attr.s
 class PRWrapper:
     """Class for modeling the data returned from the GQL query for PRs"""
+
+    gql_client = GQLClient()
 
     number = attr.ib()
     repo = attr.ib()
@@ -404,3 +424,78 @@ class PRWrapper:
             / SECONDS_TO_HOURS,
             1,
         )
+
+
+@attr.s
+class OrgWrapper:
+    """Wrap the org queries"""
+
+    gql_client = GQLClient()
+
+    name = attr.ib()
+
+    def team_members(self, team):
+        """Get the logins for the given team"""
+        with self.gql_client.session as gql_session:
+            gql_data = gql_session.execute(
+                gql(contributors_query.org_team_members_query),
+                variable_values={"organization": self.name, "team": team},
+            )
+        return [
+            u["login"] for u in gql_data["organization"]["team"]["members"]["nodes"]
+        ]
+
+
+@attr.s
+class UserWrapper:
+    """wrap the user queries"""
+
+    gql_client = GQLClient()
+
+    login = attr.ib()
+
+    def contributions(self, from_date=None, to_date=None):
+        """Get the contributions collections for date range
+
+        Args:
+            from_date: iso8601 datetime, defaults to 1 week ago
+            to_date: iso8601 datetime, defaults to now
+
+        Return:
+            list of dicts with contribution counts, looks like:
+            ```[{'login': 'gh-name',
+                 'contributionsCollection': {
+                     'pullRequestContributionsByRepository': [{'repository': {'name': 'airgun'},
+                                                               'contributions': {'totalCount': 3}}],
+                 'pullRequestReviewContributionsByRepository': [],
+                 'issueContributionsByRepository': [],
+                 'commitContributionsByRepository': []}},
+        """  # noqa: E501
+        from_date = from_date or (NOW - WEEK_DELTA)
+        to_date = to_date or NOW
+        with self.gql_client.session as gql_session:
+            gql_data = gql_session.execute(
+                gql(contributors_query.contributions_counts_by_user_query),
+                variable_values={
+                    "user": self.login,
+                    "from_date": from_date.isoformat(timespec="seconds"),
+                    "to_date": to_date.isoformat(timespec="seconds"),
+                },
+            )
+        # flatten dictionary value lists to repo name key and count value
+        # also shortening the type string
+        flattened_counts = defaultdict(lambda: defaultdict(dict))
+        for cont_type, repo_conts in Box(
+            gql_data["user"]["contributionsCollection"]
+        ).items():
+            short_type = cont_type[
+                0 : cont_type.index("ContributionsByRepository")  # noqa: E203
+            ]
+            if repo_conts:
+                for repo_cont in repo_conts:
+                    flattened_counts[short_type][
+                        repo_cont.repository.name
+                    ] = repo_cont.contributions.totalCount
+            else:  # some are empty lists
+                flattened_counts[short_type] = {}
+        return flattened_counts
