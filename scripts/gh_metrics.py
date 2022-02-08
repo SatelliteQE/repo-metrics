@@ -2,12 +2,14 @@ from datetime import datetime
 from pathlib import Path
 
 import click
+from tabulate import multiline_formats
 from tabulate import tabulate
 
 from config import METRICS_OUTPUT
 from config import settings
 from utils import file_io
 from utils import metrics_calculators
+from utils.GQL_Queries.github_wrappers import OrgWrapper
 
 
 # keys that will be read from settings files (dynaconf parsing) for command input defaults
@@ -22,6 +24,7 @@ def report():
 
 
 # reused options for multiple metrics functions
+# TODO read defaults from settings
 output_prefix_option = click.option(
     "--output-file-prefix",
     default=settings.get(SETTINGS_OUTPUT_PREFIX, "metrics-report"),
@@ -39,10 +42,34 @@ repo_name_option = click.option(
     multiple=True,
     help="The repository name, like robottelo. ",
 )
+team_name_option = click.option(
+    "--team",
+    default=[],
+    multiple=True,
+    help="The github team name slug (URL field form, like quality-engineers)",
+)
+user_name_option = click.option(
+    "--user",
+    default=[],
+    multiple=True,
+    help="The github login name (URL field form, like mshriver)",
+)
 pr_count_option = click.option(
     "--pr-count",
     default=50,
     help="Number of PRs to include in metrics counts, will start from most recently created",
+)
+num_weeks_option = click.option(
+    "--num-weeks",
+    default=4,
+    type=click.IntRange(1, 52),
+    help="Number of weeks of metrics history to collect",
+)
+table_format_option = click.option(
+    "--table-format",
+    default="fancy_grid",
+    type=click.Choice(multiline_formats),
+    help="The tabulate output format, https://github.com/astanin/python-tabulate#multiline-cells",
 )
 
 
@@ -54,7 +81,8 @@ pr_count_option = click.option(
 @repo_name_option
 @output_prefix_option
 @pr_count_option
-def repo_pr_metrics(org, repo, output_file_prefix, pr_count):
+@table_format_option
+def repo_pr_metrics(org, repo, output_file_prefix, pr_count, table_format):
     for repo_name in repo:
         click.echo(f"Collecting metrics for {org}/{repo_name} ...")
 
@@ -67,7 +95,7 @@ def repo_pr_metrics(org, repo, output_file_prefix, pr_count):
         click.echo(header)
         click.echo("-" * len(header))
         click.echo(
-            tabulate(pr_metrics, headers="keys", tablefmt="github", floatfmt=".1f")
+            tabulate(pr_metrics, headers="keys", tablefmt=table_format, floatfmt=".1f")
         )
 
         header = f"Review Metric Statistics for [{repo_name}]"
@@ -75,7 +103,9 @@ def repo_pr_metrics(org, repo, output_file_prefix, pr_count):
         click.echo(header)
         click.echo("-" * len(header))
         click.echo(
-            tabulate(stat_metrics, headers="keys", tablefmt="github", floatfmt=".1f")
+            tabulate(
+                stat_metrics, headers="keys", tablefmt=table_format, floatfmt=".1f"
+            )
         )
 
         pr_metrics_filename = METRICS_OUTPUT.joinpath(
@@ -105,12 +135,15 @@ def repo_pr_metrics(org, repo, output_file_prefix, pr_count):
         )
 
 
-@report.command("reviewer-report")
+@report.command(
+    "reviewer-report", help="Gather metrics on reviewer actions within a GH repo"
+)
 @org_name_option
 @repo_name_option
 @output_prefix_option
 @pr_count_option
-def reviewer_actions(org, repo, output_file_prefix, pr_count):
+@table_format_option
+def reviewer_actions(org, repo, output_file_prefix, pr_count, table_format):
     """ Generate metrics for tier reviewer groups, and general contributors
 
     Will collect tier reviewer teams from the github org
@@ -127,13 +160,13 @@ def reviewer_actions(org, repo, output_file_prefix, pr_count):
         click.echo(f"\n{'-' * len(header)}")
         click.echo(header)
         click.echo("-" * len(header))
-        click.echo(tabulate(t1_metrics, headers="keys", tablefmt="github"))
+        click.echo(tabulate(t1_metrics, headers="keys", tablefmt=table_format))
 
         header = f"Tier2 Reviewer actions by week for [{repo_name}]"
         click.echo(f"\n{'-' * len(header)}")
         click.echo(header)
         click.echo("-" * len(header))
-        click.echo(tabulate(t2_metrics, headers="keys", tablefmt="github"))
+        click.echo(tabulate(t2_metrics, headers="keys", tablefmt=table_format))
 
         tier1_metrics_filename = METRICS_OUTPUT.joinpath(
             f"{Path(output_file_prefix).stem}-"
@@ -159,4 +192,61 @@ def reviewer_actions(org, repo, output_file_prefix, pr_count):
         file_io.write_to_output(
             tier2_metrics_filename,
             tabulate(t2_metrics, headers="keys", tablefmt="html"),
+        )
+
+
+@report.command("contributor-report")
+@org_name_option
+@output_prefix_option
+@team_name_option
+@num_weeks_option
+@table_format_option
+@user_name_option
+def contributor_actions(org, output_file_prefix, team, num_weeks, table_format, user):
+    """Collect count metrics of various contribution types"""
+
+    orgwrap = OrgWrapper(name=org)
+
+    collected_users = []
+
+    if not (user or team):
+        click.echo("ERROR: Need to specify either a team and/or user")
+
+    collaborators = list(user)  # might be empty, we're gonna add users from the team(s)
+
+    for team_name in team:
+        # Assert the team exists and list its members
+        team_members = orgwrap.team_members(team=team_name)
+        click.echo(f"Team members for {org}/{team_name}:\n" + "\n".join(team_members))
+        collaborators.extend(team_members)
+
+    # maybe drop this into an OrgWrapper function
+    # replacing the function label here in the loop
+    for user in collaborators:
+        if user not in collected_users:
+            click.echo(f"Retrieving metrics for user: {user}")
+            collected_users.append(user)
+        else:
+            click.echo(f"Skipping user (member of multiple teams): {user}")
+        # collect metrics for the given user if not already covered by another team
+        contributor_counts = metrics_calculators.contributor_actions(
+            user=user, num_weeks=num_weeks
+        )
+
+        header = f"Contributions by week for [{user}]"
+        click.echo(f"\n{'-' * len(header)}")
+        click.echo(header)
+        click.echo("-" * len(header))
+        click.echo(tabulate(contributor_counts, tablefmt=table_format, headers="keys"))
+
+        user_metrics_filename = METRICS_OUTPUT.joinpath(
+            f"{Path(output_file_prefix).stem}-"
+            f"{user}-"
+            "contributor-"
+            f"{datetime.now().isoformat(timespec='minutes')}.html"
+        )
+        click.echo(f"\nWriting contributor metrics as HTML to {user_metrics_filename}")
+        file_io.write_to_output(
+            user_metrics_filename,
+            tabulate(contributor_counts, headers="keys", tablefmt="html"),
         )

@@ -1,12 +1,17 @@
 from collections import defaultdict
 from datetime import date
+from datetime import datetime
+from datetime import timedelta
 from statistics import fmean
 from statistics import median
 from statistics import pstdev
 
-from attrdict import AttrDict
+from box import Box
+from dateutil.rrule import rrule
+from dateutil.rrule import WEEKLY
 
 from .GQL_Queries.github_wrappers import RepoWrapper
+from .GQL_Queries.github_wrappers import UserWrapper
 
 EMPTY = "---"
 
@@ -33,8 +38,8 @@ Metrics:
 """
 
 
-class PullRequestMetrics(AttrDict):
-    """Dummy class to provide distinct type around AttrDict"""
+class PullRequestMetrics(Box):
+    """Dummy class to provide distinct type around Box"""
 
     pass
 
@@ -153,3 +158,50 @@ def reviewer_actions(organization, repository, pr_count=100):
     t1_metrics.sort(key=lambda m: m["Week"], reverse=True)
     t2_metrics.sort(key=lambda m: m["Week"], reverse=True)
     return t1_metrics, t2_metrics
+
+
+def contributor_actions(user, num_weeks):
+    """
+    Gather metrics for contributions by week for members of an organization team
+
+    Query will include PR, issue, PR review, and commit contributions by repository, by week
+
+    Iterate over weekly recurrance queries
+
+    Data returned is ready for tabulate with headers=keys
+    Organize metrics by type of action, first column is week, finally by repository
+    """
+    userwrap = UserWrapper(login=user)
+    dated_counts = defaultdict(list)
+    now = datetime.now()
+    starting_date = now - timedelta(weeks=num_weeks)
+    # rrule will create a list of start/stop times for weekly interval
+    datelist = rrule(WEEKLY, until=now, dtstart=starting_date)
+    # iterate over sets of start/stop by zipping the list against itself
+    # relying on python to keep these list items in order.
+    for from_date, to_date in zip(datelist, datelist[1:]):
+
+        user_contributions = userwrap.contributions(
+            from_date=from_date, to_date=to_date
+        )
+        # {'pullRequest': {'repo-metrics': 1},
+        #  'pullRequestReview': {'robottelo': 1},
+        #  'issue': {},
+        #  'commit': {}
+
+        # want:
+        # {'week': [from0, from1, from2]
+        #  'pullRequest': [{'repo': 1}, {}, {'other': 2}]}
+
+        dated_counts["week"].append(from_date.strftime(DATE_FMT))
+
+        for cont_type, cont_repos in user_contributions.items():
+            # Convert the raw value dicts to table cell values
+            if cont_repos:
+                dated_counts[cont_type].append(
+                    "\n".join(f"{r}: {c}" for r, c in cont_repos.items())
+                )
+            else:
+                dated_counts[cont_type].append("---")
+
+    return dated_counts
